@@ -38,7 +38,7 @@ library FilAddressUtil {
         return FilAddresses.fromEthAddress(addr);
     }
 
-    function fromEthAddressToF0Address(address addr)internal view returns (CommonTypes.FilAddress memory){
+    function fromEthAddressToF0Address(address addr) internal view returns (CommonTypes.FilAddress memory){
         if (isFilF0Address(addr)) {
             return FilAddresses.fromActorID(uint64(uint160(addr)));
         }
@@ -99,14 +99,21 @@ library FilAddressUtil {
         uint32[] investorsAllotRatio;
     }
 
-uint128  constant ensemble = 10000;
+uint128  constant ensemble = 1000000;
 
 
 library BeneficiaryProxyPlatformLib {
-    function sendByAllotRatio(address[] storage receiver, uint32[] storage allotRatio, uint128 amount) internal {
+    function sendByAllotRatio(address[] storage receiver, uint32[] memory allotRatio, uint128 amount) internal {
         uint length = receiver.length;
+
+        //ensemble修改为1000_000，兼容上个版本逻辑
+        uint128 _ensemble = 0;
         for (uint i = 0; i < length; i++) {
-            SendAPI.send(FilAddressUtil.fromEthAddress(receiver[i]), uint256(amount * allotRatio[i] / ensemble));
+            _ensemble += allotRatio[i];
+        }
+
+        for (uint i = 0; i < length; i++) {
+            SendAPI.send(FilAddressUtil.fromEthAddress(receiver[i]), uint256(amount * allotRatio[i] / _ensemble));
         }
     }
 
@@ -131,10 +138,10 @@ library BeneficiaryProxyPlatformLib {
 
 contract Factory {
     BeneficiaryProxyPlatform public BPP;
-    constructor (address renter){
+    constructor (){
         Proposal proposal = new Proposal();
         BeneficiaryProxy beneficiaryProxy = new BeneficiaryProxy();
-        BPP = new BeneficiaryProxyPlatform(address(beneficiaryProxy), address(proposal), renter);
+        BPP = new BeneficiaryProxyPlatform(address(beneficiaryProxy), address(proposal));
     }
 }
 
@@ -148,7 +155,6 @@ contract BeneficiaryProxyPlatform {
     address public immutable ProposalCont;
     address public immutable BeneficiaryProxyCont;
 
-
     modifier onlyRenter(){
         require(msg.sender == Renter);
         _;
@@ -156,9 +162,13 @@ contract BeneficiaryProxyPlatform {
 
     receive() external payable {}
 
-    constructor(address beneficiaryProxyCont, address proposalCont, address renter){
+    constructor(address beneficiaryProxyCont, address proposalCont){
         BeneficiaryProxyCont = beneficiaryProxyCont;
         ProposalCont = proposalCont;
+    }
+
+    function init(address renter) public {
+        require(Renter == address(0));
         Renter = renter;
     }
 
@@ -170,12 +180,12 @@ contract BeneficiaryProxyPlatform {
         return proposalsRepo[actor];
     }
 
-    function changeRent(address newRenter) external payable onlyRenter {
+    function changeRent(address newRenter) public payable onlyRenter {
         Renter = newRenter;
     }
 
-    function rent(address addr, uint256 balance) external payable onlyRenter {
-        SendAPI.send(FilAddressUtil.fromEthAddress(addr), balance);
+    function rent(uint256 balance) public payable onlyRenter {
+        SendAPI.send(FilAddressUtil.fromEthAddress(msg.sender), balance);
     }
 
     function registerBeneficiary(uint64 actor, RegisterBeneficiaryInfo memory info) public payable {
@@ -369,7 +379,7 @@ contract Proposal {
 
             require(ratio == ensemble);
             //当执行时需要检查所有voters是否还在beneficiarys和investors
-        }else {
+        } else {
             abi.decode(params, (uint128));
         }
 
