@@ -38,6 +38,14 @@ library FilAddressUtil {
         return FilAddresses.fromEthAddress(addr);
     }
 
+    function fromEthAddressToF0Address(address addr)internal view returns (CommonTypes.FilAddress memory){
+        if (isFilF0Address(addr)) {
+            return FilAddresses.fromActorID(uint64(uint160(addr)));
+        }
+
+        return FilAddresses.fromActorID(PrecompilesAPI.resolveEthAddress(addr));
+    }
+
     function resolveEthAddress(address addr) internal view returns (uint64) {
         if (isFilF0Address(addr)) {
             return uint64(uint160(addr));
@@ -64,10 +72,8 @@ library FilAddressUtil {
         UpdateBeneficiary,
         ResetBeneficiaryReleaseHeight,
         ResetInvestedReleaseHeight,
-        EarlyWithdrawalOfInvestor,
         UpdateBeneficiarysAllotRatio,
         ResetInvestedFunds,
-        //ResetVoters,
         End
     }
 
@@ -205,7 +211,6 @@ contract BeneficiaryProxyPlatform {
         require(success);
     }
 }
-
 
 contract BeneficiaryProxy {
     using BigInts for *;
@@ -364,11 +369,7 @@ contract Proposal {
 
             require(ratio == ensemble);
             //当执行时需要检查所有voters是否还在beneficiarys和investors
-        } else if (proposalType == uint8(ProposalType.EarlyWithdrawalOfInvestor)) {
-            uint128 _earlyWithdrawalOfInvestorFunds = abi.decode(params, (uint128));
-
-            require(_earlyWithdrawalOfInvestorFunds <= (roster.investedFunds - roster.withdrawnFunds), "amount of withdrawal is exceeded the limit");
-        } else {
+        }else {
             abi.decode(params, (uint128));
         }
 
@@ -464,8 +465,6 @@ contract Proposal {
             isOk = implementResetBeneficiaryReleaseHeight(roster, proposalInfo.params);
         } else if (proposalType == uint8(ProposalType.ResetInvestedReleaseHeight)) {
             isOk = implementResetInvestedReleaseHeight(roster, proposalInfo.params);
-        } else if (proposalType == uint8(ProposalType.EarlyWithdrawalOfInvestor)) {
-            isOk = implementEarlyWithdrawalOfInvestor(actor, roster, proposalInfo.params);
         } else if (proposalType == uint8(ProposalType.UpdateBeneficiarysAllotRatio)) {
             isOk = implementUpdateBeneficiarysAllotRatio(roster, proposalInfo.params);
         } else if (proposalType == uint8(ProposalType.ResetInvestedFunds)) {
