@@ -56,10 +56,10 @@ library FilAddressUtil {
 }
 
     struct BeneficiaryInfo {
-        uint128 beneficiaryReleaseHeight;
-        uint128 investedReleaseHeight;
-        uint128 investedFunds;
-        uint128 withdrawnFunds;
+        uint128 beneficiaryReleaseHeight; //受益释放高度
+        uint128 investedReleaseHeight; //质押释放高度
+        uint128 investedFunds; //质押币数量
+        uint128 withdrawnFunds; //质押币已返回数量
         address[] beneficiarys; //收益人
         address[] investors; //质押人
         //address[] voters; //投票人
@@ -69,34 +69,34 @@ library FilAddressUtil {
 
     enum ProposalType{
         None,
-        UpdateBeneficiary,
-        ResetBeneficiaryReleaseHeight,
-        ResetInvestedReleaseHeight,
-        UpdateBeneficiarysAllotRatio,
-        ResetInvestedFunds,
+        UpdateBeneficiary, //修改矿工受益人提案
+        ResetBeneficiaryReleaseHeight, //修改受益人释放高度提案
+        ResetInvestedReleaseHeight, //修改质押释放高度提案
+        UpdateBeneficiarysAllotRatio, //修改受益人分配比例提案
+        ResetInvestedFunds, //修改质押币数量提案
         End
     }
 
     struct VoteInfo {
-        address addr;
+        address addr; //投票地址
         bool isApproved;
     }
 
     struct ProposalInfo {
-        uint8 proposalType;
+        uint8 proposalType;//提案类型
         int8 stat;  //-1:投票反对 0:未有结果 1:执行成功 2:执行失败
-        bytes params;
-        VoteInfo[] voteInfos;
+        bytes params; //提案参数
+        VoteInfo[] voteInfos; //投票信息
     }
 
     struct RegisterBeneficiaryInfo {
-        uint128 beneficiaryReleaseHeight;
-        uint128 investedReleaseHeight;
-        uint128 investedFunds;
-        address[] beneficiarys;
-        uint32[] beneficiarysAllotRatio;
-        address[] investors;
-        uint32[] investorsAllotRatio;
+        uint128 beneficiaryReleaseHeight; ///受益释放高度
+        uint128 investedReleaseHeight; //质押释放高度
+        uint128 investedFunds; //质押币数量
+        address[] beneficiarys;//收益人
+        uint32[] beneficiarysAllotRatio;//收益人分配比例
+        address[] investors;//质押人
+        uint32[] investorsAllotRatio;//质押人分配比例
     }
 
 uint128  constant ensemble = 1000000;
@@ -148,11 +148,16 @@ contract Factory {
 contract BeneficiaryProxyPlatform {
     using BigInts for *;
 
+    //受益人注册信息及状态信息
     mapping(uint64 => BeneficiaryInfo) private rosters;
+    //提案信息
     mapping(uint64 => ProposalInfo[]) private proposalsRepo;
 
+    //当前合约小费地址
     address public Renter;
+    //提案相关的逻辑代理合约
     address public immutable ProposalCont;
+    //非提案相关的逻辑代理合约
     address public immutable BeneficiaryProxyCont;
 
     modifier onlyRenter(){
@@ -167,48 +172,62 @@ contract BeneficiaryProxyPlatform {
         ProposalCont = proposalCont;
     }
 
+    //初始化合约小费地址，部署完成后需要自行初始化小费地址。
     function init(address renter) public {
         require(Renter == address(0));
         Renter = renter;
     }
 
+    //获取受益人注册信息及状态信息
     function getRoster(uint64 actor) public view returns (BeneficiaryInfo memory){
         return rosters[actor];
     }
 
+    //获取提案信息
     function getProposals(uint64 actor) public view returns (ProposalInfo[]memory){
         return proposalsRepo[actor];
     }
 
+    //修改小费地址
     function changeRent(address newRenter) public payable onlyRenter {
         Renter = newRenter;
     }
 
+    //从合约中提取小费到renter地址
+    //限制: 调用者=renter
     function rent(uint256 balance) public payable onlyRenter {
         SendAPI.send(FilAddressUtil.fromEthAddress(msg.sender), balance);
     }
 
+    //注册受益人信息
+    //限制: 调用者=节点owner
     function registerBeneficiary(uint64 actor, RegisterBeneficiaryInfo memory info) public payable {
         (bool success,) = BeneficiaryProxyCont.delegatecall(abi.encodeWithSignature("registerBeneficiary(uint64,(uint128,uint128,uint128,address[],uint32[],address[],uint32[]))", actor, info));
         require(success);
     }
 
+    //从节点提币到受益人。如果当前高度大于等于质押释放高度，资金会优先返还给质押人
+    //限制： 当前高度>=受益释放高度
     function withdraw(uint64 actor, int256 amount) public payable {
         (bool success,) = BeneficiaryProxyCont.delegatecall(abi.encodeWithSignature("withdraw(uint64,int256)", actor, amount));
         require(success);
     }
 
+    //修改受益人注册信息中受益人的地址
+    //限制 调用者=受益人之一
     function changeBeneficiary(uint64 actor, address newAddr) public payable {
         (bool success,) = BeneficiaryProxyCont.delegatecall(abi.encodeWithSignature("changeBeneficiary(uint64,address)", actor, newAddr));
         require(success);
     }
 
+    //修改受益人注册信息中质押人的地址
+    //限制 调用者=质押人之一
     function changeInvestor(uint64 actor, address newAddr) public payable {
         (bool success,) = BeneficiaryProxyCont.delegatecall(abi.encodeWithSignature("changeInvestor(uint64,address)", actor, newAddr));
         require(success);
     }
 
-    //提案
+    //发起一个提案
     function propose(uint64 actor, uint8 proposalType, bytes calldata params) public payable returns (uint256){
         (bool success, bytes memory raw_response) = ProposalCont.delegatecall(abi.encodeWithSignature("propose(uint64,uint8,bytes)", actor, proposalType, params));
         require(success);
@@ -216,6 +235,7 @@ contract BeneficiaryProxyPlatform {
         return abi.decode(raw_response, (uint256));
     }
 
+    //投票
     function vote(uint64 actor, uint64 proposalID, bool isApproved) public payable {
         (bool success,) = ProposalCont.delegatecall(abi.encodeWithSignature("vote(uint64,uint64,bool)", actor, proposalID, isApproved));
         require(success);
